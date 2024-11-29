@@ -1,0 +1,61 @@
+name: Terraform Deployment
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    name: Deploy Terraform changes in changed Terramate stacks
+
+    permissions:
+      id-token: write
+      contents: read
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Terramate
+        uses: terramate-io/terramate-action@v2
+
+      - name: Install Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.6
+          terraform_wrapper: false
+
+      - name: List changed stacks
+        id: list
+        run: terramate list --changed
+
+      - name: Configure AWS credentials via OIDC
+        if: steps.list.outputs.stdout
+        id: auth
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: 'ap-southeast-2'
+          role-to-assume: 'CHANGEME: IAM ROLE ARN'
+
+      - name: Run Terraform init on changed stacks
+        if: steps.list.outputs.stdout
+        id: init
+        run: |
+          terramate run \
+            --changed \
+            -- \
+            terraform init
+
+      - name: Apply changes on changed stacks
+        id: apply
+        if: steps.list.outputs.stdout
+        run: |
+          terramate run \
+            --changed \
+            -- \
+            terraform apply -input=false -auto-approve -lock-timeout=5m
